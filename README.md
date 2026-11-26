@@ -40,6 +40,7 @@ The application loads `maps/test.map` and requires compiled SPIR-V shaders at:
 - `W`, `A`, `S`, `D`: Move
 - Mouse: Look around
 - `Left Shift`: Sprint
+- `Space`: Jump
 - `X`: Cycle drawing mode
 - `Tab`: Toggle mouse capture
 - `Escape`: Quit

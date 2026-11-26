@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <SDL3/SDL.h>
+#include <limits>
 
 struct Vec3 {
     float x;
@@ -46,6 +47,12 @@ struct PlayerCamera {
     Vec3 position{0.0f, 1.6f, 6.0f};
     float yawRadians = 0.0f;
     float pitchRadians = 0.0f;
+    float eyeHeight = 1.6f;
+    float radius = 0.35f;
+    float height = 1.8f;
+    float verticalVelocity = 0.0f;
+    bool grounded = true;
+    bool jumpRequested = false;
 };
 
 CubeMesh MakeCubeGeometry(float halfExtent) {
@@ -304,7 +311,54 @@ void ApplyMouseLook(PlayerCamera& camera, float deltaX, float deltaY) {
         camera.pitchRadians - deltaY * sensitivity, -maxPitch, maxPitch);
 }
 
-void MovePlayer(PlayerCamera& camera, const bool* keyboardState, float deltaSeconds) {
+bool PointInsideExpandedCubeXZ(const Vec3& point, const CubePlacement& cube) {
+    constexpr float pi = 3.14159265358979323846f;
+    const float angle = cube.yawDegrees * (pi / 180.0f);
+    const float cosine = std::cos(-angle);
+    const float sine = std::sin(-angle);
+    const float deltaX = point.x - cube.position.x;
+    const float deltaZ = point.z - cube.position.z;
+    const float localX = cosine * deltaX - sine * deltaZ;
+    const float localZ = sine * deltaX + cosine * deltaZ;
+    return std::abs(localX) <= cube.scale && std::abs(localZ) <= cube.scale;
+}
+
+bool HorizontalCubeCollision(const PlayerCamera& camera,
+        const std::vector<CubePlacement>& placements) {
+    const float playerBottom = camera.position.y - camera.eyeHeight;
+    const float playerTop = playerBottom + camera.height;
+
+    for (const CubePlacement& cube : placements) {
+        const float cubeBottom = cube.position.y - cube.scale;
+        const float cubeTop = cube.position.y + cube.scale;
+        if (playerTop <= cubeBottom || playerBottom >= cubeTop) {
+            continue;
+        }
+
+        const Vec3& position = camera.position;
+        constexpr float pi = 3.14159265358979323846f;
+        const float angle = cube.yawDegrees * (pi / 180.0f);
+        const float cosine = std::cos(-angle);
+        const float sine = std::sin(-angle);
+        const float deltaX = position.x - cube.position.x;
+        const float deltaZ = position.z - cube.position.z;
+        const float localX = cosine * deltaX - sine * deltaZ;
+        const float localZ = sine * deltaX + cosine * deltaZ;
+
+        const float closestX = std::clamp(localX, -cube.scale, cube.scale);
+        const float closestZ = std::clamp(localZ, -cube.scale, cube.scale);
+        const float differenceX = localX - closestX;
+        const float differenceZ = localZ - closestZ;
+        if (differenceX * differenceX + differenceZ * differenceZ < camera.radius * camera.radius) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MovePlayer(PlayerCamera& camera, const bool* keyboardState, float deltaSeconds,
+        const std::vector<CubePlacement>& placements, float groundHeight,
+        float groundHalfExtent) {
     const float forwardX = std::sin(camera.yawRadians);
     const float forwardZ = -std::cos(camera.yawRadians);
     const float rightX = std::cos(camera.yawRadians);
@@ -332,9 +386,54 @@ void MovePlayer(PlayerCamera& camera, const bool* keyboardState, float deltaSeco
     const float moveLength = std::sqrt(moveX * moveX + moveZ * moveZ);
     if (moveLength > 0.0f) {
         const float baseSpeed = keyboardState[SDL_SCANCODE_LSHIFT] ? 9.0f : 4.5f;
-        const float distance = baseSpeed * deltaSeconds / moveLength;
-        camera.position.x += moveX * distance;
-        camera.position.z += moveZ * distance;
+        const float normalizedMoveX = moveX / moveLength;
+        const float normalizedMoveZ = moveZ / moveLength;
+        const float distance = baseSpeed * deltaSeconds;
+
+        camera.position.x += normalizedMoveX * distance;
+        if (HorizontalCubeCollision(camera, placements)) {
+            camera.position.x -= normalizedMoveX * distance;
+        }
+
+        camera.position.z += normalizedMoveZ * distance;
+        if (HorizontalCubeCollision(camera, placements)) {
+            camera.position.z -= normalizedMoveZ * distance;
+        }
+    }
+
+    constexpr float gravity = 18.0f;
+    constexpr float jumpSpeed = 7.5f;
+    if (camera.jumpRequested && camera.grounded) {
+        camera.verticalVelocity = jumpSpeed;
+        camera.grounded = false;
+    }
+    camera.jumpRequested = false;
+
+    camera.verticalVelocity -= gravity * deltaSeconds;
+    camera.position.y += camera.verticalVelocity * deltaSeconds;
+
+    bool onGroundPlane = std::abs(camera.position.x) <= groundHalfExtent &&
+                         std::abs(camera.position.z) <= groundHalfExtent;
+    float lowestSupportedHeight = onGroundPlane
+        ? groundHeight + camera.eyeHeight
+        : -std::numeric_limits<float>::infinity();
+    for (const CubePlacement& cube : placements) {
+        const float cubeBottom = cube.position.y - cube.scale;
+        const float cubeTop = cube.position.y + cube.scale;
+        const float playerBase = camera.position.y - camera.eyeHeight;
+
+        if (PointInsideExpandedCubeXZ(camera.position, cube) &&
+            playerBase >= cubeBottom - 0.15f && playerBase <= cubeTop + 0.15f) {
+            lowestSupportedHeight = std::max(lowestSupportedHeight, cubeTop + camera.eyeHeight);
+        }
+    }
+
+    if (camera.position.y <= lowestSupportedHeight) {
+        camera.position.y = lowestSupportedHeight;
+        camera.verticalVelocity = 0.0f;
+        camera.grounded = true;
+    } else {
+        camera.grounded = false;
     }
 }
 
@@ -688,6 +787,9 @@ int main() {
                     drawMode == DrawMode::Outline ? "outline" : "triangles";
                 std::cout << "Drawing mode: " << modeName << '\n';
             } else if (event.type == SDL_EVENT_KEY_DOWN &&
+                       event.key.key == SDLK_SPACE && !event.key.repeat) {
+                camera.jumpRequested = true;
+            } else if (event.type == SDL_EVENT_KEY_DOWN &&
                        event.key.key == SDLK_TAB && !event.key.repeat) {
                 mouseCaptured = !mouseCaptured;
                 if (!SDL_SetWindowRelativeMouseMode(window, mouseCaptured)) {
@@ -707,7 +809,8 @@ int main() {
         int keyCount = 0;
         const bool* keyboardState = SDL_GetKeyboardState(&keyCount);
         if (keyboardState) {
-            MovePlayer(camera, keyboardState, deltaSeconds);
+            MovePlayer(camera, keyboardState, deltaSeconds, placements,
+                groundHeight, groundHalfExtent);
         }
 
         int pixelWidth = 0;
