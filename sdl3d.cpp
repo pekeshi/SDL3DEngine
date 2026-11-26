@@ -486,10 +486,11 @@ void DrawCube(SDL_GPUCommandBuffer* commandBuffer, SDL_GPUTexture* swapchainText
     SDL_GPUBuffer* indexBuffer, Uint32 indexCount,
     const std::vector<CubePlacement>& placements, const PlayerCamera& camera,
     SDL_GPUBuffer* groundVertexBuffer, SDL_GPUBuffer* groundIndexBuffer,
-    Uint32 groundIndexCount, float groundHeight) {
+    Uint32 groundIndexCount, float groundHeight,
+    SDL_GPUGraphicsPipeline* groundPipeline) {
     SDL_GPUColorTargetInfo colorTarget{};
     colorTarget.texture = swapchainTexture;
-    colorTarget.clear_color = {0.035f, 0.045f, 0.065f, 1.0f};
+    colorTarget.clear_color = {0.20f, 0.55f, 1.00f, 1.0f};
     colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
     colorTarget.store_op = SDL_GPU_STOREOP_STORE;
 
@@ -523,6 +524,7 @@ void DrawCube(SDL_GPUCommandBuffer* commandBuffer, SDL_GPUTexture* swapchainText
 
     const SDL_GPUBufferBinding groundVertexBinding{groundVertexBuffer, 0};
     const SDL_GPUBufferBinding groundIndexBinding{groundIndexBuffer, 0};
+    SDL_BindGPUGraphicsPipeline(renderPass, groundPipeline);
     SDL_BindGPUVertexBuffers(renderPass, 0, &groundVertexBinding, 1);
     SDL_BindGPUIndexBuffer(renderPass, &groundIndexBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
     const Mat4 groundModel = MakeTranslation(0.0f, groundHeight, 0.0f);
@@ -551,8 +553,11 @@ int main() {
     bool windowClaimed = false;
     SDL_GPUShader* vertexShader = nullptr;
     SDL_GPUShader* fragmentShader = nullptr;
+    SDL_GPUShader* groundFragmentShader = nullptr;
     SDL_GPUGraphicsPipeline* filledPipeline = nullptr;
     SDL_GPUGraphicsPipeline* outlinePipeline = nullptr;
+    SDL_GPUGraphicsPipeline* filledGroundPipeline = nullptr;
+    SDL_GPUGraphicsPipeline* outlineGroundPipeline = nullptr;
     SDL_GPUBuffer* vertexBuffer = nullptr;
     SDL_GPUBuffer* indexBuffer = nullptr;
     SDL_GPUBuffer* edgeBuffer = nullptr;
@@ -575,8 +580,11 @@ int main() {
         if (groundTriangleEdgeBuffer) SDL_ReleaseGPUBuffer(device, groundTriangleEdgeBuffer);
         if (filledPipeline) SDL_ReleaseGPUGraphicsPipeline(device, filledPipeline);
         if (outlinePipeline) SDL_ReleaseGPUGraphicsPipeline(device, outlinePipeline);
+        if (filledGroundPipeline) SDL_ReleaseGPUGraphicsPipeline(device, filledGroundPipeline);
+        if (outlineGroundPipeline) SDL_ReleaseGPUGraphicsPipeline(device, outlineGroundPipeline);
         if (vertexShader) SDL_ReleaseGPUShader(device, vertexShader);
         if (fragmentShader) SDL_ReleaseGPUShader(device, fragmentShader);
+        if (groundFragmentShader) SDL_ReleaseGPUShader(device, groundFragmentShader);
         if (windowClaimed) SDL_ReleaseWindowFromGPUDevice(device, window);
         if (window) SDL_DestroyWindow(window);
         SDL_DestroyGPUDevice(device);
@@ -608,6 +616,7 @@ int main() {
 
     vertexShader = LoadShader(device, "shaders/cube.vert.spv", SDL_GPU_SHADERSTAGE_VERTEX);
     fragmentShader = LoadShader(device, "shaders/cube.frag.spv", SDL_GPU_SHADERSTAGE_FRAGMENT);
+    groundFragmentShader = LoadShader(device, "shaders/ground.frag.spv", SDL_GPU_SHADERSTAGE_FRAGMENT);
     const CubeMesh cube = MakeCubeGeometry(1.0f);
     const GroundPlaneMesh ground = MakeGroundPlane(groundHalfExtent);
     vertexBuffer = CreateBufferFromData(
@@ -637,7 +646,11 @@ int main() {
         SDL_GPU_PRIMITIVETYPE_TRIANGLELIST);
     outlinePipeline = CreateCubePipeline(device, window, vertexShader, fragmentShader,
         SDL_GPU_PRIMITIVETYPE_LINELIST);
-    if (!filledPipeline || !outlinePipeline) {
+    filledGroundPipeline = CreateCubePipeline(device, window, vertexShader, groundFragmentShader,
+        SDL_GPU_PRIMITIVETYPE_TRIANGLELIST);
+    outlineGroundPipeline = CreateCubePipeline(device, window, vertexShader, groundFragmentShader,
+        SDL_GPU_PRIMITIVETYPE_LINELIST);
+    if (!filledPipeline || !outlinePipeline || !filledGroundPipeline || !outlineGroundPipeline) {
         cleanup();
         return 1;
     }
@@ -757,7 +770,8 @@ int main() {
             DrawCube(commandBuffer, swapchainTexture, depthTexture, swapchainWidth,
                 swapchainHeight, filled ? filledPipeline : outlinePipeline, vertexBuffer,
                 selectedIndexBuffer, selectedIndexCount, placements, camera, groundVertexBuffer,
-                selectedGroundIndexBuffer, selectedGroundIndexCount, groundHeight);
+                selectedGroundIndexBuffer, selectedGroundIndexCount, groundHeight,
+                filled ? filledGroundPipeline : outlineGroundPipeline);
         }
 
         if (!SDL_SubmitGPUCommandBuffer(commandBuffer)) {

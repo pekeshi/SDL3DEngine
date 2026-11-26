@@ -1,8 +1,4 @@
 # ground: y-position  halfExtent (plane spans +/- halfExtent on x and z)
 # cube:   x-position  y-position  z-position  yaw-degrees  scale
-ground     -10.0   10.0
-cube       -0.0   -1.0  0.0    0.0           0.75
-cube        0.0   0.0    0.0   20.0           1.00
-cube        2.0   0.0    0.0  -15.0           0.75
-cube       -1.0   1.8   -1.0   35.0           0.55
-cube        1.0  -1.8   -1.0  -35.0           0.55
+ground     0.0   10.0
+cube       0.0   1 0.0    0.0           1
