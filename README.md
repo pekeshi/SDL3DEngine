@@ -12,14 +12,14 @@ A small C++ 3D cube renderer built with SDL 3 and the SDL GPU API.
 ## Requirements
 
 - Linux
-- C++17-compatible compiler
+- C++ compiler
 - SDL 3 development libraries
 - Vulkan-compatible graphics support
 
 ## Build
 
 ```sh
-g++ -std=c++17 sdl3d.cpp -lSDL3 -o sdl3d
+g++ sdl3d.cpp -lSDL3 -o sdl3d
 ```
 
 ## Run
